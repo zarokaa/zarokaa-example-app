@@ -5,7 +5,7 @@
  * tab. It cannot read that page, and Zarokaa cannot read this one — so anything
  * the two need to agree on (who is signed in, which theme, which language, "open
  * this vehicle in the host") goes through a versioned, origin-checked
- * postMessage protocol. `@polygon/app-bridge` is that protocol. Raw postMessage
+ * postMessage protocol. the Zarokaa app bridge is that protocol. Raw postMessage
  * is not a contract and will break.
  *
  * THE SESSION TOKEN IS NOT AN ACCESS TOKEN. It is short-lived, audience-bound,
@@ -280,7 +280,7 @@ async function main() {
     const query = new URLSearchParams({ install_id: context.install_id || params.get("install_id") || "" });
     const installation = context.installation || params.get("installation");
     if (installation) query.set("installation", installation);
-    const res = await fetch(`/api/units?${query.toString()}`, { headers: { "X-Polygon-Session": token } });
+    const res = await fetch(`/api/units?${query.toString()}`, { headers: { "X-Zarokaa-Session": token } });
     const body = await res.json();
 
     if (!res.ok) {

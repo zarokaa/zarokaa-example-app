@@ -42,11 +42,11 @@ const EVENTS = {
 /**
  * What handshake/getContext return. Protocol v1, additive since 1.1:
  *   install_id, locale, dir ("ltr"|"rtl"), unit_system ("metric"|"imperial"), timezone (IANA)
- *   theme        resolved "light"|"dark" — what Polygon is showing now
+ *   theme        resolved "light"|"dark" — what Zarokaa is showing now
  *   theme_mode   "light"|"dark"|"auto" — the user's choice; "auto" follows the OS     (1.1)
  *   theme_color  the deployment's accent colour (white-label aware)
  *   brand        {name, logo_url} of the (white-label) deployment                      (1.1)
- *   installation the Polygon installation code, when the deployment has one            (1.1)
+ *   installation the Zarokaa installation code, when the deployment has one            (1.1)
  *   tokens       {"--polygon-primary", "--polygon-surface", "--polygon-text", "--polygon-border",
  *                 "--polygon-radius", "--polygon-space-1".."--polygon-space-4"} resolved to
  *                 concrete CSS values, for document.documentElement.style.setProperty (1.1)

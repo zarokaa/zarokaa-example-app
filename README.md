@@ -9,7 +9,7 @@ account, and you have working examples of every part of the platform:
 | **Install token** | RS256, verified against the issuing installation's JWKS and the hub directory before anything is provisioned — `src/installToken.js` |
 | **OAuth 2.1 + PKCE (S256)** | authorize, exchange, and refresh with rotation handled correctly, per installation — `src/oauth.js`, `src/api.js` |
 | **REST calls** | with pre-emptive token refresh and serialised refreshes — `src/api.js` |
-| **Embedded UI** | in Zarokaa's iframe, through `@polygon/app-bridge` — `public/embed.js` |
+| **Embedded UI** | in Zarokaa's iframe, through the Zarokaa app bridge — `public/embed.js` |
 | **Webhooks** | signature verification on the raw body, dedup, replay-safe — `src/webhooks.js` |
 
 Every file is commented with *why*, not just what. The bits that are easy to get
@@ -21,9 +21,9 @@ You need a developer account and app credentials from the
 implements, and the [API reference](https://developer.zarokaa.online/docs/reference)
 lists every endpoint.
 
-> **Names you will see.** `@polygon/app-bridge`, the `--polygon-*` theme tokens
-> and the `X-Polygon-*` headers are wire-protocol identifiers kept from before the
-> product was named Zarokaa. They are stable; use them as they are.
+> **Two names you will see.** Zarokaa signs webhooks in an `X-Polygon-Signature`
+> header and pushes its theme as `--polygon-*` CSS variables. Both are fixed parts
+> of the platform's wire protocol; use them exactly as written.
 
 ---
 
@@ -244,7 +244,7 @@ src/
   views.js      hand-written HTML, escaped at every call site
   selftest.js   18 checks, no network needed
 public/
-  embed.js      the iframe UI, over @polygon/app-bridge
+  embed.js      the iframe UI, over the Zarokaa app bridge
   app.css       follows the host's theme
 vendor/
   app-bridge/   a checked-in copy of the SDK, so there is no build step

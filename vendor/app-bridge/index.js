@@ -12,7 +12,7 @@ const {
 } = require("./protocol");
 
 /**
- * @polygon/app-bridge — the app's only supported way to talk to its host.
+ * Zarokaa app bridge — the app's only supported way to talk to its host.
  *
  * An embedded app is a cross-origin iframe. It cannot read the host's DOM, it
  * cannot share cookies with it, and it must not try: every capability it has is
@@ -34,7 +34,7 @@ const {
  *     happens to be framing you.
  *
  * @example
- *   import { createApp } from "@polygon/app-bridge";
+ *   import { createApp } from "./app-bridge/index.js";
  *   const bridge = createApp({ clientId: "pgc_..." });
  *   const token = await bridge.getSessionToken();
  *   bridge.on("theme", ({ theme, tokens }) => {
@@ -67,7 +67,7 @@ class AppBridge {
     this.hostOrigin = resolveHostOrigin(options, this.win);
     if (!this.hostOrigin) {
       throw new BridgeError(
-        "Could not determine the Polygon host origin. Polygon appends ?host=<base64url origin> " +
+        "Could not determine the Zarokaa host origin. Zarokaa appends ?host=<base64url origin> " +
           "to your app URL; pass { host } explicitly if you route around it.",
         "NO_HOST"
       );
@@ -76,7 +76,7 @@ class AppBridge {
     this.parent = this.win.parent;
     if (!this.parent || this.parent === this.win) {
       throw new BridgeError(
-        "This page is not running inside Polygon. Open it from the Polygon App Store.",
+        "This page is not running inside Zarokaa. Open it from the Zarokaa App Store.",
         "NOT_EMBEDDED"
       );
     }
@@ -166,7 +166,7 @@ class AppBridge {
     return this.request(REQUESTS.NAVIGATE, normaliseNavigate(target));
   }
 
-  /** A host-rendered toast, so it appears in Polygon's own notification area. */
+  /** A host-rendered toast, so it appears in Zarokaa's own notification area. */
   toast(options) {
     const payload =
       typeof options === "string" ? { text: options } : { ...(options || {}) };
@@ -181,7 +181,7 @@ class AppBridge {
    * A host-rendered modal containing another page of YOUR app.
    *
    * The host owns the chrome — the overlay, the focus trap, the escape key — so
-   * a modal from an app looks and behaves like a modal from Polygon. An app
+   * a modal from an app looks and behaves like a modal from Zarokaa. An app
    * rendering its own overlay inside the iframe can only ever cover its own
    * rectangle.
    */
@@ -278,7 +278,7 @@ class AppBridge {
         this.pending.delete(nonce);
         reject(
           new BridgeError(
-            `The Polygon host did not answer "${type}" within ${this.timeoutMs}ms.`,
+            `The Zarokaa host did not answer "${type}" within ${this.timeoutMs}ms.`,
             "TIMEOUT"
           )
         );
@@ -293,7 +293,7 @@ class AppBridge {
       } catch (e) {
         clearTimeout(timer);
         this.pending.delete(nonce);
-        reject(new BridgeError(`Could not reach the Polygon host: ${e.message}`, "POST_FAILED"));
+        reject(new BridgeError(`Could not reach the Zarokaa host: ${e.message}`, "POST_FAILED"));
       }
     });
   }
@@ -449,7 +449,7 @@ function normaliseNavigate(target) {
   // frame somewhere else, which is a redirect the customer never asked for.
   if (!/^\//.test(value.path) || /^\/\//.test(value.path)) {
     throw new BridgeError(
-      'navigate() takes a Polygon path such as "/unit/123/view", not an absolute URL.',
+      'navigate() takes a Zarokaa path such as "/unit/123/view", not an absolute URL.',
       "INVALID_ARGUMENT"
     );
   }

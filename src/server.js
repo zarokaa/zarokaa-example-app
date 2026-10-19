@@ -85,7 +85,7 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 /**
  * Serve the app bridge to the browser as a single ES module.
  *
- * WHY THIS ROUTE EXISTS. `@polygon/app-bridge` ships CommonJS, and a browser
+ * WHY THIS ROUTE EXISTS. the Zarokaa app bridge ships CommonJS, and a browser
  * cannot `import` that. Every real app has a bundler that handles it — this
  * example deliberately has none, so that a developer can read every file and
  * run it with two commands. Concatenating the SDK's two source files behind a
