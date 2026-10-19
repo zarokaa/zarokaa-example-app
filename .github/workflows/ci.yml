@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # The floor declared in package.json, and current LTS.
+        node: ["18", "20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      # No network and no credentials needed: the self-test covers PKCE, the
+      # install-handoff signature and webhook verification, which is where the
+      # security-relevant logic lives.
+      - run: npm test
+
+  boots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      # Proves the server starts and serves the bridge as a valid ES module —
+      # the one part that would otherwise only fail in a browser.
+      - name: Start and probe
+        env:
+          APP_BASE_URL: https://ci.example.test
+          ZAROKAA_CLIENT_ID: pgc_ci
+          ZAROKAA_CLIENT_SECRET: pgs_ci
+          ZAROKAA_WEBHOOK_SECRET: whsec_ci
+          PORT: "3999"
+        run: |
+          node src/server.js &
+          for i in $(seq 1 20); do curl -sf localhost:3999/health >/dev/null && break; sleep 0.5; done
+          curl -sf localhost:3999/health
+          curl -sf localhost:3999/vendor/app-bridge.js -o bridge.mjs
+          node --input-type=module -e "
+            globalThis.window={addEventListener(){},removeEventListener(){},parent:{postMessage(){}},location:{search:''}};
+            const m=await import('./bridge.mjs');
+            if(typeof m.createApp!=='function') throw new Error('bridge did not export createApp');
+            console.log('bridge loads as an ES module');
+          "

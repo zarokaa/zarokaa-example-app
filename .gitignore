@@ -1,0 +1,6 @@
+node_modules/
+.env
+# The installation store is a JSON file in development — see src/store.js.
+# It holds refresh tokens. It must never be committed.
+data/
+*.log

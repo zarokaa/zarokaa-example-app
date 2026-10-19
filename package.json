@@ -1,0 +1,29 @@
+{
+  "name": "zarokaa-example-app",
+  "version": "1.0.0",
+  "private": false,
+  "description": "A complete, runnable Zarokaa marketplace app: OAuth with PKCE, an embedded UI, REST calls and verified webhooks — in about 700 lines with no build step.",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "check": "node --check src/server.js && node src/selftest.js",
+    "test": "node src/selftest.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "keywords": [
+    "zarokaa",
+    "telematics",
+    "fleet",
+    "oauth",
+    "webhooks",
+    "example"
+  ]
+}
