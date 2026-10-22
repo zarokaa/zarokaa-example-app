@@ -7,6 +7,7 @@ const crypto = require("crypto");
 const { config } = require("./config");
 const oauth = require("./oauth");
 const store = require("./store");
+const commands = require("./commands");
 
 /**
  * The Zarokaa API client.
@@ -139,6 +140,21 @@ const api = {
     }),
 
   listWebhooks: (key) => call(key, "/webhooks"),
+
+  listDevices: (key, pageSize = 25) => call(key, `/devices?page_size=${pageSize}`),
+
+  /**
+   * Queue a command (devices.commands:execute). Answers `queued` at once; the
+   * result comes by webhook or getCommand. Pass the same idempotencyKey to
+   * retry the same intention — see src/commands.js.
+   */
+  sendCommand: (key, deviceId, options) => commands.send(call, key, deviceId, options),
+
+  getCommand: (key, deviceId, commandId) =>
+    call(key, `/devices/${encodeURIComponent(deviceId)}/commands/${encodeURIComponent(commandId)}`),
+
+  listCommands: (key, deviceId, status) =>
+    call(key, `/devices/${encodeURIComponent(deviceId)}/commands?page_size=10${status ? `&status=${encodeURIComponent(status)}` : ""}`),
 
   /** What the customer sees in their App Store as your billing state. */
   setEntitlement: (key, entitlement) =>

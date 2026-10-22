@@ -85,4 +85,44 @@ function deliveriesTable(deliveries) {
   </table>`;
 }
 
-module.exports = { esc, page, presentation, notice, unitsTable, deliveriesTable };
+/**
+ * The key is rendered INTO the form, so a browser that re-posts it (back,
+ * refresh, a double click) re-sends the same key and gets the same command_id
+ * back instead of a second command. Reloading the page makes a new key, which
+ * is a new intention.
+ */
+function commandForm({ installKey, idempotencyKey, deviceId = "", command = "READ_CARDS" }) {
+  return `<form method="post" action="/commands" class="stack">
+    <input type="hidden" name="install" value="${esc(installKey)}">
+    <input type="hidden" name="idempotency_key" value="${esc(idempotencyKey)}">
+    <label>Device id <input name="device_id" required value="${esc(deviceId)}" placeholder="from GET /devices" size="40"></label>
+    <label>Command code <input name="command" required value="${esc(command)}" maxlength="15"></label>
+    <button class="btn" type="submit">Send</button>
+    <p class="muted small">READ_CARDS is Galileosky "Read registered cards". Needs <code>devices.commands:execute</code>.</p>
+  </form>`;
+}
+
+function commandResult(command, outcome, { installKey, waitedSeconds } = {}) {
+  const tone = outcome.confirmed ? "good" : outcome.failed ? "bad" : outcome.status === "unconfirmed" ? "warn" : "info";
+  const refresh = `/commands/${encodeURIComponent(command.device_id || "")}/${encodeURIComponent(command.command_id || "")}?install=${encodeURIComponent(installKey || "")}`;
+  const cards = outcome.cards
+    ? outcome.cards.length
+      ? `<table><thead><tr><th>Slot</th><th>Card id</th></tr></thead><tbody>${outcome.cards
+          .map((c) => `<tr><td>${esc(c.index)}</td><td class="mono">${esc(c.id)}</td></tr>`)
+          .join("")}</tbody></table>`
+      : `<p class="muted">The device has no cards registered.</p>`
+    : "";
+  return `${notice(tone, `<strong>${esc(outcome.status)}</strong>${outcome.final ? "" : " (in flight)"}`)}
+    <dl class="small">
+      <dt>Command</dt><dd class="mono">${esc((command.command && command.command.code) || "")} · ${esc(command.command_id)}</dd>
+      ${outcome.reason ? `<dt>Reason</dt><dd>${esc(outcome.reason.code)} ${esc(outcome.reason.text || "")}</dd>` : ""}
+      ${outcome.raw !== null ? `<dt>Device reply</dt><dd class="mono">${esc(outcome.raw)}</dd>` : ""}
+      ${outcome.parseError ? `<dt>Parse error</dt><dd>${esc(outcome.parseError)}</dd>` : ""}
+    </dl>
+    ${cards}
+    ${outcome.final ? "" : `<p><a class="btn" href="${esc(refresh)}&wait=25">Wait up to 25 s</a> <a href="${esc(refresh)}">Check again</a>${
+      waitedSeconds ? ` <span class="muted small">still in flight after ${esc(waitedSeconds)} s — an offline device keeps it queued</span>` : ""
+    }</p>`}`;
+}
+
+module.exports = { esc, page, presentation, notice, unitsTable, deliveriesTable, commandForm, commandResult };

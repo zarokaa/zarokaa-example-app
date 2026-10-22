@@ -10,7 +10,8 @@ const oauth = require("./oauth");
 const store = require("./store");
 const webhooks = require("./webhooks");
 const { api, ZarokaaError } = require("./api");
-const { esc, page, presentation, notice, unitsTable, deliveriesTable } = require("./views");
+const commands = require("./commands");
+const { esc, page, presentation, notice, unitsTable, deliveriesTable, commandForm, commandResult } = require("./views");
 
 const app = express();
 
@@ -323,7 +324,88 @@ app.get("/api/units", async (req, res) => {
 });
 
 /* ------------------------------------------------------------------ *
- * 5. A plain page, so the app is useful before it is embedded
+ * 5. Device commands — send one, then read what became of it
+ * ------------------------------------------------------------------ */
+
+app.post("/commands", express.urlencoded({ extended: false }), async (req, res) => {
+  const key = resolveKey(req.body);
+  if (!key) return res.status(404).send(page("No installation", notice("bad", "Install the app first.")));
+
+  const deviceId = String(req.body.device_id || "").trim();
+  const command = String(req.body.command || "").trim();
+  if (!deviceId || !command) {
+    return res.status(400).send(page("Send a command", notice("bad", "Device id and command code are both required.")));
+  }
+
+  try {
+    const sent = await api.sendCommand(key, deviceId, {
+      command,
+      // From the form, so a re-posted form is the same intention and the same command_id.
+      idempotencyKey: String(req.body.idempotency_key || "") || undefined
+    });
+    console.log(`[command] ${command} → ${deviceId}: ${sent.command_id} ${sent.status}`);
+    // 303 so a refresh of the result page is a GET, not another POST.
+    res.redirect(303, `/commands/${encodeURIComponent(deviceId)}/${encodeURIComponent(sent.command_id)}?install=${encodeURIComponent(key)}`);
+  } catch (e) {
+    res
+      .status(e.status || 502)
+      .send(
+        page(
+          "Command not sent",
+          notice("bad", `Zarokaa refused the command: ${esc(e.message)}${e.code ? ` <code>${esc(e.code)}</code>` : ""}`) +
+            (e.requestId ? `<p class="muted small">Zarokaa request id <code>${esc(e.requestId)}</code></p>` : "") +
+            `<p><a href="/?install=${encodeURIComponent(key)}">Back</a></p>`
+        )
+      );
+  }
+});
+
+/**
+ * The poll fallback, made visible. Without ?wait it reads the command once;
+ * with ?wait=N (at most 25, so the request cannot hang) it polls with backoff
+ * until the status is final. A webhook is still the better way: it arrives
+ * whenever the device answers, however long that takes.
+ */
+app.get("/commands/:deviceId/:commandId", async (req, res) => {
+  const key = resolveKey(req.query);
+  if (!key) return res.status(404).send(page("No installation", notice("bad", "Install the app first.")));
+
+  const { deviceId, commandId } = req.params;
+  const waitSeconds = Math.min(25, Math.max(0, Number(req.query.wait) || 0));
+  const read = async () => (await api.getCommand(key, deviceId, commandId)).data;
+
+  try {
+    const command = waitSeconds
+      ? (await commands.waitForResult(read, { budgetMs: waitSeconds * 1000 })).command || (await read())
+      : await read();
+    const outcome = commands.outcome(command);
+    res.send(
+      page(
+        "Command",
+        `<h2>Command</h2>${commandResult(command, outcome, { installKey: key, waitedSeconds: waitSeconds })}
+         <p><a href="/?install=${encodeURIComponent(key)}">Back</a></p>`
+      )
+    );
+  } catch (e) {
+    const missing = e.status === 404;
+    res
+      .status(e.status || 502)
+      .send(
+        page(
+          "Command",
+          notice(
+            "bad",
+            missing
+              ? "No such command on this device for this installation."
+              : `Could not read the command: ${esc(e.message)}${e.code ? ` <code>${esc(e.code)}</code>` : ""}`
+          )
+        )
+      );
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * 6. A plain page, so the app is useful before it is embedded
  * ------------------------------------------------------------------ */
 
 app.get("/", async (req, res) => {
@@ -376,6 +458,7 @@ app.get("/", async (req, res) => {
       setup +
         `<p class="muted small">Installation <code>${esc(key)}</code> · ${installations.length} installed</p>
          <h2>Vehicles</h2>${unitsHtml}
+         <h2>Send a command</h2>${commandForm({ installKey: key, idempotencyKey: commands.newIdempotencyKey() })}
          <h2>Webhook deliveries</h2>${deliveriesTable(webhooks.recentDeliveries())}`
     )
   );

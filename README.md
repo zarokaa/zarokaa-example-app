@@ -11,6 +11,7 @@ account, and you have working examples of every part of the platform:
 | **REST calls** | with pre-emptive token refresh and serialised refreshes — `src/api.js` |
 | **Embedded UI** | in Zarokaa's iframe, through the Zarokaa app bridge — `public/embed.js` |
 | **Webhooks** | signature verification on the raw body, dedup, replay-safe — `src/webhooks.js` |
+| **Device commands** | send with an `Idempotency-Key`, the result by webhook or by polling with backoff, driver cards read from a Galileosky — `src/commands.js` |
 
 Every file is commented with *why*, not just what. The bits that are easy to get
 wrong say so in capitals.
@@ -48,8 +49,10 @@ npm test
 ```
 
 It checks PKCE, install-token verification (unknown issuer, reused `jti`, wrong
-audience, expiry, algorithm) and webhook verification — including the one
-mistake that catches nearly everybody (see *Webhooks* below).
+audience, expiry, algorithm), webhook verification — including the one mistake
+that catches nearly everybody (see *Webhooks* below) — and device-command
+handling: one `Idempotency-Key` across retries, polling that stops at a final
+status, and `unconfirmed` never reported as success.
 
 ---
 
@@ -121,8 +124,15 @@ In the developer portal, create an app and set:
 | Redirect URI | `{APP_BASE_URL}/oauth/callback` |
 | App URL | `{APP_BASE_URL}/embed` |
 
-Scopes: `units:read` is enough for this example. Add `webhooks:manage` to
-register endpoints from the app itself.
+Scopes: `units:read` is enough for the vehicle list. Ask only for what you use:
+
+| Scope | What it unlocks here |
+|---|---|
+| `units:read` | the vehicle list; `unit.*` webhook topics |
+| `webhooks:manage` | registering endpoints from the app itself; the `install.*` lifecycle topics |
+| `devices:read` | `GET /devices`, to find a device id to send a command to |
+| `devices.commands:execute` | sending commands, reading their results, and the `command.*` topics |
+| `devices.commands:read` | reading command history and results without being able to send |
 
 Copy the **client id** and **client secret** into `.env`. The secret is shown
 once.
@@ -164,6 +174,12 @@ Register an endpoint pointed at `{APP_BASE_URL}/webhooks/zarokaa`, choose your
 topics, and paste the signing secret it shows **once** into
 `ZAROKAA_WEBHOOK_SECRET`.
 
+`handle()` in `src/webhooks.js` understands `install.uninstalled`,
+`install.scopes_updated`, `unit.created` / `unit.updated` / `unit.deleted`,
+`unit.position`, `geofence.entered` / `geofence.exited`, and
+`command.completed` / `command.failed` / `command.status_changed`. Anything else
+is acknowledged and logged, never refused: topics are added within v1.
+
 With that blank, this app refuses every delivery rather than accepting
 unverified ones. That is deliberate.
 
@@ -185,6 +201,35 @@ Three more things worth knowing:
 - **Answer fast, work after.** Zarokaa times out at 10 seconds and retries.
 - **A rotation sends two `v1=` signatures.** Accept if *either* matches, or every
   secret rotation breaks you.
+
+## Device commands
+
+The demo page has a *Send a command* form: a device id (from `GET /devices`)
+and a command code, `READ_CARDS` by default — Galileosky's "Read registered
+cards". Sending never returns the result. The POST answers `queued` with a
+`command_id`, and the device answers whenever it is online:
+
+1. **Send** — `POST /devices/{device_id}/commands` with an `Idempotency-Key`.
+   The key is made once per intention and rendered into the form, so a
+   re-posted form (refresh, back, double click) returns the same `command_id`
+   instead of sending the command twice. `src/commands.js` retries network
+   errors, 429 and 5xx with that same key and never retries a 4xx.
+2. **Webhook (preferred)** — exactly one `command.completed` or
+   `command.failed` per command, once it is final, with the device's reply.
+   For `READ_CARDS` the reply's `response.data.cards` is the list of
+   `{ index, id }`; an empty list is `cards: []`.
+3. **Poll (fallback)** — `/commands/<device>/<command>?wait=25` polls
+   `GET /devices/{device_id}/commands/{command_id}` with capped exponential
+   backoff and stops at the first final status (`terminal: true`).
+
+**`unconfirmed` is not success.** It arrives on `command.completed` because
+nothing visibly failed, but the device's protocol never confirms commands, so
+nobody knows whether it ran. `outcome()` reports `confirmed: false` for it, and
+the self-test fails if that ever changes. A reply the platform could not parse
+is still `accepted`: read `response.raw` and `response.parse_error`.
+
+The developer portal's guide "Send a command and track its result" has the
+status table and which protocols confirm commands.
 
 ## Pass the review checks
 
@@ -240,9 +285,10 @@ src/
   oauth.js      PKCE, discovery, code exchange, refresh — per installation
   api.js        API client: pre-emptive refresh, serialised, typed errors
   webhooks.js   signature verification and the event handlers
+  commands.js   send with an Idempotency-Key, outcome of a command, poll with backoff
   store.js      installations keyed by (installation, install_id) — a JSON file, NOT a production store
   views.js      hand-written HTML, escaped at every call site
-  selftest.js   18 checks, no network needed
+  selftest.js   30 checks, no network needed
 public/
   embed.js      the iframe UI, over the Zarokaa app bridge
   app.css       follows the host's theme

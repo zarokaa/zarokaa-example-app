@@ -3,10 +3,12 @@
 /**
  * A self-test for the parts that are easy to get wrong and silent when wrong.
  *
- * NOT A UNIT TEST SUITE. It covers exactly the three things that, in the
- * author's experience, every first integration gets wrong and then blames the
- * platform for: PKCE, install-token verification (issuer trust, audience,
- * replay), and webhook verification against a re-serialised body. It needs no network, no credentials and no
+ * NOT A UNIT TEST SUITE. It covers exactly the things that, in the author's
+ * experience, every first integration gets wrong and then blames the platform
+ * for: PKCE, install-token verification (issuer trust, audience, replay),
+ * webhook verification against a re-serialised body, and device-command
+ * outcomes (unconfirmed is not success; one Idempotency-Key across retries).
+ * It needs no network, no credentials and no
  * Zarokaa — `npm test` runs it in under a second.
  */
 
@@ -20,6 +22,7 @@ const crypto = require("crypto");
 
 const oauth = require("./oauth");
 const webhooks = require("./webhooks");
+const commands = require("./commands");
 const store = require("./store");
 const { config } = require("./config");
 const { createInstallTokenVerifier } = require("./installToken");
@@ -231,6 +234,144 @@ test("an OAuth state is single-use", () => {
   store.putPending("state-1", { verifier: "v" });
   assert.ok(store.takePending("state-1"), "first read should succeed");
   assert.strictEqual(store.takePending("state-1"), null, "a replayable state is not a CSRF defence");
+});
+
+/* --- device commands ------------------------------------------------------ */
+
+const READ_CARDS_ACCEPTED = {
+  command_id: "cmd-1",
+  device_id: "dev-1",
+  command: { code: "READ_CARDS", label: "Read registered cards" },
+  status: "accepted",
+  terminal: true,
+  status_reason: null,
+  response: {
+    raw: "IBUTTONS:0091022C,0,0,0,0,0,0,0",
+    encoding: "text",
+    parser: "galileosky.ibutton_list",
+    data: { cards: [{ index: 1, id: "0091022C" }], slots: 8 },
+    parse_error: null,
+    truncated: false
+  }
+};
+
+test("command: accepted READ_CARDS yields the cards", () => {
+  const o = commands.outcome(READ_CARDS_ACCEPTED);
+  assert.strictEqual(o.confirmed, true);
+  assert.deepStrictEqual(o.cards, [{ index: 1, id: "0091022C" }]);
+  assert.match(commands.describe(READ_CARDS_ACCEPTED), /slot 1 0091022C/);
+});
+
+test("command: an empty card list is cards: [], not missing data", () => {
+  const empty = { ...READ_CARDS_ACCEPTED, response: { ...READ_CARDS_ACCEPTED.response, data: { cards: [], slots: 8 } } };
+  assert.deepStrictEqual(commands.outcome(empty).cards, []);
+  assert.match(commands.describe(empty), /no cards/);
+});
+
+test("command: unconfirmed is final but NEVER reported as confirmed", () => {
+  const c = { command_id: "cmd-2", status: "unconfirmed", terminal: true, response: null };
+  const o = commands.outcome(c);
+  assert.strictEqual(o.final, true);
+  assert.strictEqual(o.confirmed, false);
+  assert.strictEqual(o.failed, false);
+  assert.match(commands.describe(c), /may or may not have run/);
+});
+
+test("command: failed statuses carry the reason", () => {
+  const c = { command_id: "cmd-3", status: "timeout", terminal: true, status_reason: { code: "ack_timeout", text: "no reply in 120 s" } };
+  const o = commands.outcome(c);
+  assert.strictEqual(o.failed, true);
+  assert.deepStrictEqual(o.reason, { code: "ack_timeout", text: "no reply in 120 s" });
+  assert.match(commands.describe(c), /timeout \(ack_timeout: no reply in 120 s\)/);
+});
+
+test("command: a reply no parser understood is still accepted, with raw kept", () => {
+  const c = { command_id: "cmd-4", status: "accepted", terminal: true, response: { raw: "WHAT?", data: null, parse_error: "not an IBUTTONS reply" } };
+  const o = commands.outcome(c);
+  assert.strictEqual(o.confirmed, true);
+  assert.strictEqual(o.cards, null);
+  assert.match(commands.describe(c), /reply not understood/);
+});
+
+test("command: queued and sent are in flight; the six others are final", () => {
+  for (const s of ["queued", "sent"]) assert.strictEqual(commands.isTerminal({ status: s }), false, s);
+  for (const s of ["accepted", "rejected", "unconfirmed", "timeout", "expired", "failed"]) {
+    assert.strictEqual(commands.isTerminal({ status: s }), true, s);
+  }
+  assert.strictEqual(commands.isTerminal({ status: "sent", terminal: true }), true, "the API's terminal flag wins");
+});
+
+test("command: backoff doubles and is capped", () => {
+  const mid = () => 0.5; // no jitter
+  assert.strictEqual(commands.backoffMs(0, { random: mid }), 2000);
+  assert.strictEqual(commands.backoffMs(3, { random: mid }), 16000);
+  assert.strictEqual(commands.backoffMs(20, { random: mid }), 60000);
+});
+
+test("command: a retried send reuses ONE Idempotency-Key, so it cannot run twice", async () => {
+  const keys = [];
+  let calls = 0;
+  const fakeCall = async (key, path, opts) => {
+    keys.push(opts.idempotencyKey);
+    assert.strictEqual(opts.method, "POST");
+    assert.strictEqual(path, "/devices/dev-1/commands");
+    assert.deepStrictEqual(opts.body, { command: "READ_CARDS" });
+    calls += 1;
+    if (calls === 1) throw Object.assign(new Error("socket hang up"), { status: undefined }); // network error
+    if (calls === 2) throw Object.assign(new Error("busy"), { status: 503, retryable: true });
+    return { data: { command_id: "cmd-1", status: "queued", created_at: "2026-10-21T10:15:00Z" } };
+  };
+  const sent = await commands.send(fakeCall, "inst", "dev-1", { command: "READ_CARDS", sleep: async () => {} });
+  assert.strictEqual(sent.command_id, "cmd-1");
+  assert.strictEqual(keys.length, 3);
+  assert.ok(keys.every((k) => k === keys[0]) && /^[A-Za-z0-9._:-]{8,255}$/.test(keys[0]), "same, valid key on every attempt");
+});
+
+test("command: a 4xx is not retried", async () => {
+  let calls = 0;
+  const fakeCall = async () => {
+    calls += 1;
+    throw Object.assign(new Error("not found"), { status: 404, code: "EXT_NOT_FOUND", retryable: false });
+  };
+  await assert.rejects(commands.send(fakeCall, "inst", "dev-x", { command: "READ_CARDS", sleep: async () => {} }), /not found/);
+  assert.strictEqual(calls, 1);
+});
+
+test("command: polling stops at the first final status", async () => {
+  const seq = [{ status: "queued" }, { status: "sent" }, { ...READ_CARDS_ACCEPTED }, { status: "should-not-read" }];
+  let reads = 0;
+  let clock = 0;
+  const result = await commands.waitForResult(async () => seq[reads++], {
+    budgetMs: 10 * 60_000,
+    now: () => clock,
+    sleep: async (ms) => { clock += ms; },
+    random: () => 0.5
+  });
+  assert.strictEqual(result.done, true);
+  assert.strictEqual(reads, 3);
+  assert.strictEqual(result.command.status, "accepted");
+});
+
+test("command: polling gives up at the budget and hands back the last in-flight record", async () => {
+  let clock = 0;
+  const result = await commands.waitForResult(async () => ({ status: "queued" }), {
+    budgetMs: 60_000,
+    now: () => clock,
+    sleep: async (ms) => { clock += ms; },
+    random: () => 0.5
+  });
+  assert.strictEqual(result.done, false);
+  assert.strictEqual(result.command.status, "queued");
+  assert.ok(clock <= 60_000, "never sleeps past the budget");
+});
+
+test("command: command.completed and command.failed webhooks are described, unconfirmed included", () => {
+  assert.match(webhooks.handle({ topic: "command.completed", data: READ_CARDS_ACCEPTED }), /1 card/);
+  assert.match(
+    webhooks.handle({ topic: "command.failed", data: { command_id: "c", status: "rejected", status_reason: { code: "device_rejected", text: "WRONG PARAM" } } }),
+    /rejected \(device_rejected: WRONG PARAM\)/
+  );
+  assert.match(webhooks.handle({ topic: "command.completed", data: { command_id: "c", status: "unconfirmed" } }), /may or may not/);
 });
 
 (async () => {

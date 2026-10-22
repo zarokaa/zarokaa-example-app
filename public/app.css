@@ -116,3 +116,10 @@ th, td { padding: .45rem .5rem; border-bottom: 1px solid var(--border); vertical
   color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
 }
+
+/* The command form on the demo page. */
+form.stack { display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end; }
+form.stack label { display: flex; flex-direction: column; gap: .2rem; font-size: .9rem; }
+form.stack p { flex-basis: 100%; margin: 0; }
+dl.small dt { font-weight: 600; margin-top: .4rem; }
+dl.small dd { margin: 0; overflow-wrap: anywhere; }

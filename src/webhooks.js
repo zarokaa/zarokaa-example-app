@@ -4,6 +4,7 @@ const crypto = require("crypto");
 
 const { config } = require("./config");
 const store = require("./store");
+const commands = require("./commands");
 
 /**
  * Receiving webhooks from Zarokaa.
@@ -129,6 +130,20 @@ function handle(event) {
       return `Vehicle ${event.data.unit_id} ${
         event.topic === "geofence.entered" ? "entered" : "left"
       } ${event.data.geofence_name || event.data.geofence_id || "a geofence"}.`;
+
+    case "command.completed":
+    case "command.failed":
+      /**
+       * Exactly one of these per command, once it is final. `data` is the full
+       * command record, the device's reply included. command.completed also
+       * carries `unconfirmed` — sent, but never confirmed — which describe()
+       * deliberately does not report as success.
+       */
+      return commands.describe(event.data);
+
+    case "command.status_changed":
+      // Optional and unordered: a late `sent` can arrive after the final status. Never let it overwrite one.
+      return commands.describe(event.data);
 
     case "unit.position":
       return `Vehicle ${event.data.unit_id} at ${event.data.latitude}, ${event.data.longitude}.`;
