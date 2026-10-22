@@ -248,24 +248,19 @@ const READ_CARDS_ACCEPTED = {
   response: {
     raw: "IBUTTONS:0091022C,0,0,0,0,0,0,0",
     encoding: "text",
-    parser: "galileosky.ibutton_list",
-    data: { cards: [{ index: 1, id: "0091022C" }], slots: 8 },
+    parser: null,
+    data: null,
     parse_error: null,
     truncated: false
   }
 };
 
-test("command: accepted READ_CARDS yields the cards", () => {
+test("command: an accepted command carries the device's reply text as sent", () => {
   const o = commands.outcome(READ_CARDS_ACCEPTED);
   assert.strictEqual(o.confirmed, true);
-  assert.deepStrictEqual(o.cards, [{ index: 1, id: "0091022C" }]);
-  assert.match(commands.describe(READ_CARDS_ACCEPTED), /slot 1 0091022C/);
-});
-
-test("command: an empty card list is cards: [], not missing data", () => {
-  const empty = { ...READ_CARDS_ACCEPTED, response: { ...READ_CARDS_ACCEPTED.response, data: { cards: [], slots: 8 } } };
-  assert.deepStrictEqual(commands.outcome(empty).cards, []);
-  assert.match(commands.describe(empty), /no cards/);
+  assert.strictEqual(o.raw, "IBUTTONS:0091022C,0,0,0,0,0,0,0");
+  assert.strictEqual(o.encoding, "text");
+  assert.match(commands.describe(READ_CARDS_ACCEPTED), /accepted: IBUTTONS:0091022C/);
 });
 
 test("command: unconfirmed is final but NEVER reported as confirmed", () => {
@@ -285,12 +280,12 @@ test("command: failed statuses carry the reason", () => {
   assert.match(commands.describe(c), /timeout \(ack_timeout: no reply in 120 s\)/);
 });
 
-test("command: a reply no parser understood is still accepted, with raw kept", () => {
-  const c = { command_id: "cmd-4", status: "accepted", terminal: true, response: { raw: "WHAT?", data: null, parse_error: "not an IBUTTONS reply" } };
+test("command: a binary reply stays hex and is still accepted", () => {
+  const c = { command_id: "cmd-4", status: "accepted", terminal: true, response: { raw: "0A1BFF", encoding: "hex" } };
   const o = commands.outcome(c);
   assert.strictEqual(o.confirmed, true);
-  assert.strictEqual(o.cards, null);
-  assert.match(commands.describe(c), /reply not understood/);
+  assert.strictEqual(o.encoding, "hex");
+  assert.match(commands.describe(c), /accepted: 0A1BFF/);
 });
 
 test("command: queued and sent are in flight; the six others are final", () => {
@@ -366,7 +361,7 @@ test("command: polling gives up at the budget and hands back the last in-flight 
 });
 
 test("command: command.completed and command.failed webhooks are described, unconfirmed included", () => {
-  assert.match(webhooks.handle({ topic: "command.completed", data: READ_CARDS_ACCEPTED }), /1 card/);
+  assert.match(webhooks.handle({ topic: "command.completed", data: READ_CARDS_ACCEPTED }), /accepted: IBUTTONS:0091022C/);
   assert.match(
     webhooks.handle({ topic: "command.failed", data: { command_id: "c", status: "rejected", status_reason: { code: "device_rejected", text: "WRONG PARAM" } } }),
     /rejected \(device_rejected: WRONG PARAM\)/

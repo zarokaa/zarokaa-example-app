@@ -55,19 +55,15 @@ function outcome(command) {
   const status = command && command.status;
   const reason = (command && command.status_reason) || null;
   const response = (command && command.response) || null;
-  const data = response && response.data;
   return {
     status,
     final: isTerminal(command),
     confirmed: status === "accepted",
     failed: ["rejected", "timeout", "expired", "failed"].includes(status),
     reason: reason ? { code: reason.code || null, text: reason.text || null } : null,
-    // READ_CARDS (galileosky.ibutton_list): { cards: [{ index, id }], slots }. Null when no parser matched.
-    cards: data && Array.isArray(data.cards) ? data.cards : null,
-    data: data === undefined ? null : data,
+    // The device's reply text, exactly as sent (hex when encoding is "hex"). Parse it yourself.
     raw: response ? response.raw : null,
-    // The device answered but in a shape the platform did not recognise: still `accepted`, read `raw`.
-    parseError: response ? response.parse_error || null : null
+    encoding: response ? response.encoding || "text" : null
   };
 }
 
@@ -86,11 +82,6 @@ function describe(command) {
     return `${label} ${id} ${o.status}${why}.`;
   }
   if (o.status === "accepted") {
-    if (o.cards) {
-      const list = o.cards.length ? o.cards.map((c) => `slot ${c.index} ${c.id}`).join(", ") : "no cards";
-      return `${label} ${id} accepted: ${o.cards.length} card(s) — ${list}.`;
-    }
-    if (o.parseError) return `${label} ${id} accepted; reply not understood (${o.parseError}): ${o.raw}`;
     return `${label} ${id} accepted${o.raw ? `: ${o.raw}` : "."}`;
   }
   return `${label} ${id}: ${o.status || "unknown status"}.`;

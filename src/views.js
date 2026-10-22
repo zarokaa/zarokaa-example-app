@@ -105,21 +105,12 @@ function commandForm({ installKey, idempotencyKey, deviceId = "", command = "REA
 function commandResult(command, outcome, { installKey, waitedSeconds } = {}) {
   const tone = outcome.confirmed ? "good" : outcome.failed ? "bad" : outcome.status === "unconfirmed" ? "warn" : "info";
   const refresh = `/commands/${encodeURIComponent(command.device_id || "")}/${encodeURIComponent(command.command_id || "")}?install=${encodeURIComponent(installKey || "")}`;
-  const cards = outcome.cards
-    ? outcome.cards.length
-      ? `<table><thead><tr><th>Slot</th><th>Card id</th></tr></thead><tbody>${outcome.cards
-          .map((c) => `<tr><td>${esc(c.index)}</td><td class="mono">${esc(c.id)}</td></tr>`)
-          .join("")}</tbody></table>`
-      : `<p class="muted">The device has no cards registered.</p>`
-    : "";
   return `${notice(tone, `<strong>${esc(outcome.status)}</strong>${outcome.final ? "" : " (in flight)"}`)}
     <dl class="small">
       <dt>Command</dt><dd class="mono">${esc((command.command && command.command.code) || "")} · ${esc(command.command_id)}</dd>
       ${outcome.reason ? `<dt>Reason</dt><dd>${esc(outcome.reason.code)} ${esc(outcome.reason.text || "")}</dd>` : ""}
-      ${outcome.raw !== null ? `<dt>Device reply</dt><dd class="mono">${esc(outcome.raw)}</dd>` : ""}
-      ${outcome.parseError ? `<dt>Parse error</dt><dd>${esc(outcome.parseError)}</dd>` : ""}
+      ${outcome.raw !== null ? `<dt>Device reply${outcome.encoding === "hex" ? " (hex)" : ""}</dt><dd class="mono">${esc(outcome.raw)}</dd>` : ""}
     </dl>
-    ${cards}
     ${outcome.final ? "" : `<p><a class="btn" href="${esc(refresh)}&wait=25">Wait up to 25 s</a> <a href="${esc(refresh)}">Check again</a>${
       waitedSeconds ? ` <span class="muted small">still in flight after ${esc(waitedSeconds)} s — an offline device keeps it queued</span>` : ""
     }</p>`}`;

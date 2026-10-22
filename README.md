@@ -11,7 +11,7 @@ account, and you have working examples of every part of the platform:
 | **REST calls** | with pre-emptive token refresh and serialised refreshes — `src/api.js` |
 | **Embedded UI** | in Zarokaa's iframe, through the Zarokaa app bridge — `public/embed.js` |
 | **Webhooks** | signature verification on the raw body, dedup, replay-safe — `src/webhooks.js` |
-| **Device commands** | send with an `Idempotency-Key`, the result by webhook or by polling with backoff, driver cards read from a Galileosky — `src/commands.js` |
+| **Device commands** | send with an `Idempotency-Key`, the result and the device's reply text by webhook or by polling with backoff — `src/commands.js` |
 
 Every file is commented with *why*, not just what. The bits that are easy to get
 wrong say so in capitals.
@@ -215,9 +215,10 @@ cards". Sending never returns the result. The POST answers `queued` with a
    instead of sending the command twice. `src/commands.js` retries network
    errors, 429 and 5xx with that same key and never retries a 4xx.
 2. **Webhook (preferred)** — exactly one `command.completed` or
-   `command.failed` per command, once it is final, with the device's reply.
-   For `READ_CARDS` the reply's `response.data.cards` is the list of
-   `{ index, id }`; an empty list is `cards: []`.
+   `command.failed` per command, once it is final, with the device's reply
+   as text in `response.raw` (hex when `response.encoding` is `hex`). The
+   platform does not interpret it; parse it in your app for the commands you
+   care about.
 3. **Poll (fallback)** — `/commands/<device>/<command>?wait=25` polls
    `GET /devices/{device_id}/commands/{command_id}` with capped exponential
    backoff and stops at the first final status (`terminal: true`).
@@ -225,8 +226,7 @@ cards". Sending never returns the result. The POST answers `queued` with a
 **`unconfirmed` is not success.** It arrives on `command.completed` because
 nothing visibly failed, but the device's protocol never confirms commands, so
 nobody knows whether it ran. `outcome()` reports `confirmed: false` for it, and
-the self-test fails if that ever changes. A reply the platform could not parse
-is still `accepted`: read `response.raw` and `response.parse_error`.
+the self-test fails if that ever changes.
 
 The developer portal's guide "Send a command and track its result" has the
 status table and which protocols confirm commands.
